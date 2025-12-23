@@ -96,16 +96,22 @@
       justify-content: space-between;
       align-items: center;
       background: var(--panel-bg);
-      border-bottom: 1px solid var(--border);
     }
     .book-title::after {
       content: "▼";
       font-size: 0.8em;
       color: var(--text-light);
       transition: transform 0.25s;
+      transform: translateY(30px);
     }
     .book-title.collapsed::after {
-      transform: rotate(180deg);
+      transform: translateY(30px) rotate(180deg);
+    }
+    .book-author {
+      font-size: 0.9em;
+      color: var(--text-light);
+      margin-top: -15px;
+      padding: 0 18px 8px;
     }
     .book-content {
       padding: 0 18px;
@@ -181,21 +187,24 @@
         langLabel: "Language:",
         noTranslation: (langName) => `No translation available. Showing English.`,
         darkMode: "☾ Dark Mode",
-        lightMode: "☀ Light Mode"
+        lightMode: "☀ Light Mode",
+        byAuthor: "by: "
       },
       ru_ru: {
         title: "Книги лора Вампиризма",
         langLabel: "Язык:",
         noTranslation: (langName) => `Перевод недоступен. Показано на английском.`,
         darkMode: "☾ Тёмный режим",
-        lightMode: "☀ Светлый режим"
+        lightMode: "☀ Светлый режим",
+        byAuthor: "Автор: "
       },
       uk_ua: {
         title: "Книги лору Вампірізма",
         langLabel: "Мова:",
         noTranslation: (langName) => `Переклад недоступний. Показано англійською.`,
         darkMode: "☾ Темний режим",
-        lightMode: "☀ Світлий режим"
+        lightMode: "☀ Світлий режим",
+        byAuthor: "від: "
       }
     };
     const LANG_NAMES = {
@@ -281,8 +290,10 @@
     ];
 
     const RAW_BASE = 'https://raw.githubusercontent.com/TeamLapen/Vampirism/dev/src/main/resources/assets/vampirism';
+    const AUTHOR_BASE = 'https://raw.githubusercontent.com/TeamLapen/Vampirism/dev/src/generated/resources/data/vampirism/vampirism/vampire_book';
     let allBooksData = {};
     let langTitles = {};
+    let bookAuthors = {};
 
     const themeToggle = document.getElementById('theme-toggle');
     let currentTheme = localStorage.getItem('vampire-theme') === 'dark' ? 'dark' : 'light';
@@ -310,6 +321,50 @@
           console.warn(`Failed to load ${lang} language file`);
         }
       }
+    }
+
+    async function loadBookAuthors() {
+      for (const bookId of KNOWN_BOOK_IDS) {
+        try {
+          const url = `${AUTHOR_BASE}/${bookId}.json`;
+          const response = await fetch(url);
+          if (!response.ok) continue;
+          const data = await response.json();
+          const author = data.author;
+
+          if (typeof author === 'string') {
+            bookAuthors[bookId] = { type: 'literal', value: author };
+          } else if (author && typeof author === 'object' && author.translate) {
+            bookAuthors[bookId] = { type: 'translate', value: author.translate };
+          }
+        } catch (e) {
+          // Skip if the author file is missing or invalid
+        }
+      }
+    }
+
+    function getAuthorName(bookId, lang) {
+      const authorInfo = bookAuthors[bookId];
+
+      function resolveKey(key) {
+        if (langTitles[lang]?.[key]) return langTitles[lang][key];
+        if (langTitles.en_us?.[key]) return langTitles.en_us[key];
+        return 'unknown';
+      }
+
+      if (!authorInfo) {
+        return resolveKey('vampire_book.vampirism.unknown.author');
+      }
+
+      if (authorInfo.type === 'literal') {
+        return authorInfo.value;
+      }
+
+      if (authorInfo.type === 'translate') {
+        return resolveKey(authorInfo.value);
+      }
+
+      return resolveKey('vampire_book.vampirism.unknown.author');
     }
 
     async function loadBooks() {
@@ -366,10 +421,31 @@
         div.className = 'book-container';
         div.dataset.bookId = id;
 
+        const titleContainer = document.createElement('div');
+        titleContainer.style.padding = '14px 18px';
+        titleContainer.style.cursor = 'pointer';
+        titleContainer.style.borderBottom = '1px solid var(--border)';
+
         const titleDiv = document.createElement('div');
         titleDiv.className = 'book-title';
+        titleDiv.style.display = 'flex';
+        titleDiv.style.justifyContent = 'space-between';
+        titleDiv.style.alignItems = 'center';
+        titleDiv.style.fontWeight = '600';
+        titleDiv.style.fontSize = '1.25em';
+        titleDiv.style.marginBottom = '4px';
         titleDiv.textContent = getBookTitle(id, 'en_us');
-        titleDiv.addEventListener('click', () => {
+
+        const authorDiv = document.createElement('div');
+        authorDiv.className = 'book-author';
+        const authorName = getAuthorName(id, 'en_us');
+        const ui = UI_TEXT.en_us;
+        authorDiv.textContent = authorName ? ui.byAuthor + authorName : '';
+
+        titleContainer.appendChild(titleDiv);
+        titleContainer.appendChild(authorDiv);
+
+        titleContainer.addEventListener('click', () => {
           titleDiv.classList.toggle('collapsed');
           contentDiv.classList.toggle('expanded');
         });
@@ -377,7 +453,7 @@
         const contentDiv = document.createElement('div');
         contentDiv.className = 'book-content';
 
-        div.appendChild(titleDiv);
+        div.appendChild(titleContainer);
         div.appendChild(contentDiv);
         container.appendChild(div);
       });
@@ -392,7 +468,13 @@
       document.querySelectorAll('.book-container').forEach(container => {
         const bookId = container.dataset.bookId;
         const titleDiv = container.querySelector('.book-title');
+        const authorDiv = container.querySelector('.book-author');
         titleDiv.textContent = getBookTitle(bookId, lang);
+        if (authorDiv) {
+          const authorName = getAuthorName(bookId, lang);
+          const ui = UI_TEXT[lang] || UI_TEXT.en_us;
+          authorDiv.textContent = authorName ? ui.byAuthor + authorName : '';
+        }
 
         const contentDiv = container.querySelector('.book-content');
         contentDiv.innerHTML = '';
@@ -442,6 +524,7 @@
 
     document.addEventListener('DOMContentLoaded', async () => {
       await loadLanguageFiles();
+      await loadBookAuthors();
       await loadBooks();
       document.getElementById('lang-select').addEventListener('change', () => {
         updateBookContents();
